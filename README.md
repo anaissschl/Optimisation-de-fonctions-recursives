@@ -12,12 +12,8 @@ Détecter dans un fichier Python les fonctions **récursives terminales** et les
 
 ## Installation
 Python 3.10+ recommandé (pour `ast.unparse`).
-
-# cd "C:\Users\anais\OneDrive\Documents\Python Scripts\ProjetCompil"
+# Commandes à exécuter
 # python tr2loop\analyze_frontend.py examples\sample_input.py
 # python tr2loop\tail_analysis.py examples\sample_input.py
 # python -m tr2loop "examples\sample_input.py" --dry-run
 
-```bash
-cd tr2loop-project
-python -m tr2loop --help
