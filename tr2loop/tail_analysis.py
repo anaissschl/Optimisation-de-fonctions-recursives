@@ -17,6 +17,30 @@ Utilisation :
   python tail_analysis.py chemin/vers/fichier_source.py
 """
 
+# Importations nécessaires pour le script :
+
+# from __future__ import annotations
+#   Permet d'utiliser les annotations de type sous forme de chaînes de caractères
+#   même avant que les classes ou fonctions soient définies.
+#   Utile pour les types qui font référence à eux-mêmes ou à d'autres classes non encore définies.
+
+# import ast
+#   Module pour analyser le code Python en AST (Abstract Syntax Tree),
+#   ce qui permet d'examiner la structure du code sans l'exécuter.
+
+# import sys
+#   Module pour accéder aux arguments de la ligne de commande et aux fonctionnalités système.
+
+# from dataclasses import dataclass, field
+#   Permet de créer des classes simples pour stocker des données (data containers),
+#   avec `field` pour définir des valeurs par défaut comme des listes vides.
+
+# from typing import List, Optional, Tuple
+#   Fournit des annotations de type pour préciser :
+#     List  -> liste d'éléments d'un type donné
+#     Optional -> un type ou None
+#     Tuple -> un ensemble de valeurs de types définis
+
 from __future__ import annotations
 import ast
 import sys
@@ -27,6 +51,13 @@ from typing import List, Optional, Tuple
 # --------------------------------------------------------------------
 # Résultat d'analyse par fonction
 # --------------------------------------------------------------------
+
+# Classe pour stocker le résultat de l'analyse d'une fonction :
+# - name : nom de la fonction
+# - is_recursive : True si la fonction s'appelle elle-même
+# - is_tail_recursive : True si tous les appels récursifs sont en position terminale
+# - reasons : liste des explications/raisons détectées
+# - total_self_calls : nombre total d'appels récursifs détectés
 @dataclass
 class FunctionAnalysis:
     name: str
@@ -34,6 +65,7 @@ class FunctionAnalysis:
     is_tail_recursive: bool
     reasons: List[str] = field(default_factory=list)
     total_self_calls: int = 0
+
 
 
 # ///////////////////////////// ANALYSE SEMANTIQUE ////////////////////////////////
@@ -55,25 +87,29 @@ class BlockCheck:
     reasons: List[str] = field(default_factory=list)
 
 
+# Classe principale pour analyser une fonction Python et détecter la récursion terminale.
 class TailRecursionAnalyzer:
     """
-    Analyse une FunctionDef `f` pour détecter :
-      - présence d'auto-appels,
-      - conformité "tail recursion" (tous les auto-appels doivent être `return f(...)`),
-      - et (heuristique V1) que chaque chemin se termine par un `return`.
+    Analyse une fonction pour :
+      - détecter les appels à elle-même (récursivité),
+      - vérifier si ces appels sont en position terminale (`return f(...)`),
+      - et vérifier si tous les chemins se terminent par un return (heuristique simple).
     """
 
     def __init__(self, func: ast.FunctionDef):
+        # Stocke le nœud AST de la fonction à analyser
         self.func = func
+        # Stocke le nom de la fonction pour identifier les auto-appels
         self.fname = func.name
 
-    # -------------------------
-    # API principale
-    # -------------------------
+    # Méthode principale pour lancer l'analyse
     def analyze(self) -> FunctionAnalysis:
+        # Analyse le corps de la fonction et retourne un résumé des auto-appels et des retours
         block = self._check_block(self.func.body, in_loop=False)
 
+        # La fonction est récursive si elle contient au moins un appel à elle-même
         is_recursive = (block.self_calls_in_tail + block.self_calls_non_tail) > 0
+        # La fonction est tail-recursive si tous les appels sont en position terminale et que tous les chemins retournent
         is_tail = (
             is_recursive
             and block.ok
@@ -81,6 +117,7 @@ class TailRecursionAnalyzer:
             and block.always_returns
         )
 
+        # Copie des raisons détectées lors de l'analyse du bloc
         reasons = list(block.reasons)
         if is_recursive and block.self_calls_non_tail > 0:
             reasons.append("Auto-appel détecté hors position terminale (pas de `return f(...)`).")
@@ -89,6 +126,7 @@ class TailRecursionAnalyzer:
         if not is_recursive:
             reasons.append("Pas d'auto-appel détecté (fonction non récursive).")
 
+        # Retourne un objet FunctionAnalysis résumant l'analyse
         return FunctionAnalysis(
             name=self.fname,
             is_recursive=is_recursive,
@@ -97,77 +135,74 @@ class TailRecursionAnalyzer:
             total_self_calls=block.self_calls_in_tail + block.self_calls_non_tail,
         )
 
+
     # -------------------------
     # Analyse d'un bloc (liste de statements)
     # -------------------------
+    
+    # Méthode interne pour analyser un bloc de code (liste de statements) dans la fonction
+    # Elle vérifie la présence d'appels récursifs et si le bloc se termine toujours par un return
     def _check_block(self, stmts: List[ast.stmt], *, in_loop: bool) -> BlockCheck:
         """
-        Analyse séquentielle d'un bloc :
-          - si on rencontre un `return`, les statements suivants sont inaccessibles (on s'arrête).
-          - on agrège ok / returns / compte des self-calls.
+        Parcourt les statements du bloc :
+        - Si un 'return' est rencontré, tout ce qui suit est inatteignable.
+        - Compte les appels à soi-même (tail ou non tail).
+        - Agrège les informations pour déterminer si le bloc est correct pour une tail recursion.
         """
-        ok = True
-        always_returns = False
-        tail_calls = 0
-        non_tail_calls = 0
-        reasons: List[str] = []
+        ok = True                 # True si aucun self-call non-terminal trouvé
+        always_returns = False    # True si tous les chemins du bloc finissent par un return
+        tail_calls = 0            # Nombre d'appels récursifs en position terminale
+        non_tail_calls = 0        # Nombre d'appels récursifs hors return
+        reasons: List[str] = []   # Explications/raisons pour les problèmes détectés
 
-        # Flag : ce bloc termine-t-il sur un return sur *tous* les chemins ?
-        block_returns = False
+        block_returns = False     # Flag local pour savoir si le bloc se termine par un return
 
         i = 0
         while i < len(stmts):
             s = stmts[i]
 
-            # Cas 1 : Return
+            # Cas 1 : statement Return
             if isinstance(s, ast.Return):
-                # On analyse l'expression du return (pour voir si c'est un self-call direct)
+                # Analyse l'expression du return pour détecter un self-call direct
                 tail_ok, self_in_return, self_in_non_tail, msgs = self._analyze_return_expr(s.value)
                 ok = ok and tail_ok
                 tail_calls += self_in_return
                 non_tail_calls += self_in_non_tail
                 reasons.extend(msgs)
                 block_returns = True
-                # Tout ce qui suit un `return` est inatteignable
+                # Tout ce qui suit le return est inatteignable
                 break
 
-            # Cas 2 : If ... (il faut que chaque branche se termine correctement)
+            # Cas 2 : statement If
             elif isinstance(s, ast.If):
-                # Corps du if
+                # Analyse le corps du if et du else
                 then_res = self._check_block(s.body, in_loop=in_loop)
                 else_body = s.orelse or []
                 else_res = self._check_block(else_body, in_loop=in_loop)
 
+                # Agrège les résultats
                 ok = ok and then_res.ok and else_res.ok
                 tail_calls += then_res.self_calls_in_tail + else_res.self_calls_in_tail
                 non_tail_calls += then_res.self_calls_non_tail + else_res.self_calls_non_tail
                 reasons.extend(then_res.reasons)
                 reasons.extend(else_res.reasons)
 
-                # Pour garantir la simplicité : if/else doivent *tous deux* mener à un return
+                # Pour être simple, les deux branches doivent se terminer par un return
                 if then_res.always_returns and else_res.always_returns:
                     block_returns = True
-                    # on peut s'arrêter ici si le if est terminal
-                    # sinon, on continue (mais en pratique, le style qu'on attend est terminal)
-                    # Nous choisissons de stopper : statements suivants seraient inaccessibles si if/else exhaustif
-                    break
-                else:
-                    # Le chemin ne garantit pas un return -> la fonction pourrait "tomber" plus loin
-                    pass
+                    break  # Statements suivants inaccessibles si if/else exhaustif
 
-            # Cas 3 : Boucles / autres statements
+            # Cas 3 : Boucles, try, with, match, etc.
             elif isinstance(s, (ast.While, ast.For, ast.Try, ast.With, ast.Match)):
-                # Hors du scope V1 : on reste conservateur.
-                reasons.append(f"Structure {s.__class__.__name__} détectée : analyse V1 conservatrice (peut empêcher la preuve 'always returns').")
-                # On cherche des self-calls arbitraires à l'intérieur (non tail par défaut)
+                # Analyse conservatrice : impossible de garantir always_returns
+                reasons.append(f"Structure {s.__class__.__name__} détectée : analyse V1 conservatrice")
                 sc_tail, sc_nontail = self._scan_for_self_calls_generic(s)
                 tail_calls += sc_tail
                 non_tail_calls += sc_nontail
-                # On ne peut pas affirmer always_returns pour ce bloc via heuristique simple.
                 ok = ok and (sc_nontail == 0)
 
+            # Cas 4 : statements génériques (Assign, Expr, etc.)
             else:
-                # Statements génériques (Assign, Expr, etc.) : vérifier s'ils contiennent un self-call
                 sc_tail, sc_nontail = self._scan_for_self_calls_generic(s)
                 tail_calls += sc_tail
                 non_tail_calls += sc_nontail
@@ -177,8 +212,10 @@ class TailRecursionAnalyzer:
 
             i += 1
 
-        # always_returns = True si on a rencontré un return "terminal" pour le bloc
+        # Détermine si le bloc retourne toujours quelque chose
         always_returns = block_returns
+
+        # Retourne un résumé de l'analyse pour ce bloc
         return BlockCheck(
             ok=ok,
             always_returns=always_returns,
@@ -187,62 +224,66 @@ class TailRecursionAnalyzer:
             reasons=reasons,
         )
 
+
     # -------------------------
     # Analyse d'un `return <expr>`
     # -------------------------
+
+    # Analyse l'expression d'un return pour détecter un self-call
+    # Renvoie un tuple : (ok, self_calls_in_tail, self_calls_non_tail, reasons)
+    # - ok : False si l'appel récursif n'est pas directement dans le return
+    # - self_calls_in_tail : nombre de self-calls en position terminale
+    # - self_calls_non_tail : nombre de self-calls non terminaux
+    # - reasons : explications si problème détecté
     def _analyze_return_expr(self, value: Optional[ast.AST]) -> Tuple[bool, int, int, List[str]]:
-        """
-        Retourne (ok, self_calls_in_tail, self_calls_non_tail, reasons).
-        ok = False si l'expression de retour contient un self-call non direct.
-        """
         reasons: List[str] = []
+
+        # Cas return sans valeur (return None)
         if value is None:
-            # return None
             return True, 0, 0, reasons
 
-        # Retour direct : return f(...)? (self-call terminal)
+        # Cas return f(...) direct -> tail call
         if isinstance(value, ast.Call) and self._is_self_call(value.func):
-            # ex: return f(n-1, acc*n) -> TAIL CALL
             return True, 1, 0, reasons
 
-        # Sinon, si l'expression contient un self-call *imbriqué* (ex: return 1 + f(...))
-        # alors ce n'est PAS terminal.
+        # Cas return avec self-call imbriqué (ex: return 1 + f(...)) -> non terminal
         has_self_inside = self._contains_self_call(value)
         if has_self_inside:
-            reasons.append("Self-call détecté *dans* l'expression de retour (ex: `return g(f(...))` ou `x + f(...)`) -> non terminal.")
+            reasons.append("Self-call détecté dans l'expression de retour -> non terminal")
             return False, 0, 1, reasons
 
-        # Return "base" sans self-call : OK
+        # Return sans self-call -> OK
         return True, 0, 0, reasons
+
 
     # -------------------------
     # Helpers : détection générique de self-calls
     # -------------------------
+
+    # Vérifie si un nœud AST correspond à un appel à la fonction courante
     def _is_self_call(self, func_node: ast.AST) -> bool:
-        """Vrai si `func_node` correspond à l'identifiant de la fonction courante."""
+        # True si le nœud est un identifiant et que son nom correspond à celui de la fonction analysée
         return isinstance(func_node, ast.Name) and func_node.id == self.fname
 
+    # Vérifie si un sous-arbre AST contient un appel à la fonction courante
     def _contains_self_call(self, node: ast.AST) -> bool:
-        """Vrai si un sous-arbre contient un appel à la fonction courante."""
+        # Parcourt tous les nœuds du sous-arbre
         for sub in ast.walk(node):
             if isinstance(sub, ast.Call) and self._is_self_call(sub.func):
                 return True
         return False
 
+    # Recherche des self-calls dans un statement générique (Assign, Expr, boucle, etc.)
+    # Renvoie (self_calls_in_tail, self_calls_non_tail)
+    # Ici, tous les appels trouvés sont considérés comme non terminaux
     def _scan_for_self_calls_generic(self, node: ast.AST) -> Tuple[int, int]:
-        """
-        Scrute un statement/expr générique :
-          - si on trouve `f(...)` sous forme d'expression "libre" (Expr) ou dans un Assign, etc.
-            => ce sont des self-calls *non terminaux* (hors `return`).
-          - si on trouve `return f(...)`, ce cas est traité ailleurs.
-        Renvoie (self_calls_in_tail, self_calls_non_tail).
-        """
         tail = 0
         non_tail = 0
         for sub in ast.walk(node):
             if isinstance(sub, ast.Call) and self._is_self_call(sub.func):
-                non_tail += 1
+                non_tail += 1  # Tous les appels détectés ici sont hors return
         return tail, non_tail
+
 
 
 # --------------------------------------------------------------------
@@ -250,8 +291,15 @@ class TailRecursionAnalyzer:
 # --------------------------------------------------------------------
 def analyze_source(source: str) -> List[FunctionAnalysis]:
     tree = ast.parse(source)
+    # Le code lit le fichier source Python.
+    # Il le transforme en AST (Abstract Syntax Tree) → une structure arborescente qui représente le code Python.
+    # Chaque nœud de l’arbre correspond à un élément du code : fonction, if, return, boucle, etc.
+
     results: List[FunctionAnalysis] = []
 
+    # Le script prend chaque fonction définie au niveau supérieur du fichier.
+    # Pour chaque fonction, il crée un objet TailRecursionAnalyzer.
+    # La méthode analyze() va déterminer si la fonction est récursive et/ou tail-recursive.
     for node in tree.body:
         if isinstance(node, ast.FunctionDef):
             analyzer = TailRecursionAnalyzer(node)
@@ -279,16 +327,20 @@ def main(argv: List[str]) -> None:
     print(f"Analyse tail-recursion du fichier : {path}")
     print("=" * 68)
     for a in analyses:
+        # Détermine le statut de la fonction selon l'analyse
         status = (
-            "TAIL-RECURSIVE ✅" if a.is_tail_recursive
-            else "RECURSIVE (non terminale) ⚠️" if a.is_recursive
-            else "NON RECURSIVE ℹ️"
+            "TAIL-RECURSIVE " if a.is_tail_recursive
+            else "RECURSIVE (non terminale) " if a.is_recursive
+            else "NON RECURSIVE "
         )
         print(f"\n• Function `{a.name}` -> {status}")
         print(f"  - auto-appels détectés : {a.total_self_calls}")
+        # Affiche les raisons si des problèmes ou avertissements sont présents
         if a.reasons:
             for r in a.reasons:
                 print(f"  - raison: {r}")
 
+# Si le script est exécuté directement, lance la fonction main
 if __name__ == "__main__":
     main(sys.argv)
+
