@@ -344,3 +344,74 @@ def main(argv: List[str]) -> None:
 if __name__ == "__main__":
     main(sys.argv)
 
+
+
+
+"""
+Ce fichier réalise une analyse statique du code Python en se concentrant sur les fonctions
+récursives et plus particulièrement sur la **récursion terminale (tail recursion)**.
+
+### Objectif technique :
+L’objectif est de détecter, pour chaque fonction définie au niveau supérieur :
+1. Si la fonction s’appelle elle-même (récursion directe).
+2. Si ces appels récursifs se produisent en **position terminale** (c’est-à-dire directement
+   retournés par `return f(...)`), ce qui est la condition pour pouvoir optimiser la récursion
+   en boucle (tail-call optimization).
+3. Si tous les chemins d’exécution de la fonction se terminent par un `return`, ce qui
+   simplifie l’analyse de la récursion terminale.
+
+### Principe d’analyse sémantique :
+
+1. **Transformation en AST** :
+   - Le code source est parsé via `ast.parse()` pour obtenir un Abstract Syntax Tree.
+   - L’AST permet d’examiner la structure du code (fonctions, boucles, conditions, appels)
+     sans l’exécuter, ce qui constitue la base de l’analyse statique.
+
+2. **Analyse par fonction** :
+   - Chaque fonction est analysée individuellement via la classe `TailRecursionAnalyzer`.
+   - Le nom de la fonction est stocké pour détecter les **auto-appels**.
+
+3. **Analyse des blocs de code (`_check_block`)** :
+   - Parcourt chaque statement (instruction) de la fonction.
+   - Cas particuliers :
+     - **Return** : analyse l’expression pour voir si elle contient un self-call terminal.
+     - **If / else** : analyse chaque branche séparément et agrège les résultats.
+     - **Boucles, try, with, match** : analyse conservatrice, impossible de garantir
+       que le return sera toujours atteint.
+     - **Autres statements** (assign, expr, etc.) : recherche de self-calls non terminaux.
+   - Détermine :
+     - `ok` : True si aucun self-call non terminal n’est détecté.
+     - `always_returns` : True si tous les chemins du bloc mènent à un `return`.
+     - Compte les appels récursifs tail / non-tail et collecte des raisons d’éventuels problèmes.
+
+4. **Analyse des expressions de `return` (`_analyze_return_expr`)** :
+   - Vérifie si le `return` contient directement un appel à la fonction elle-même.
+   - Si l’appel est imbriqué dans une expression (ex: `return 1 + f(...)`), il est considéré
+     comme **non terminal**.
+
+5. **Détection des self-calls** :
+   - `_is_self_call` : vérifie si un nœud AST correspond à un appel à la fonction courante.
+   - `_contains_self_call` : parcourt un sous-arbre AST pour détecter tout appel récursif.
+   - `_scan_for_self_calls_generic` : détection conservatrice de self-calls dans des
+     statements complexes (considérés non terminaux).
+
+6. **Synthèse de l’analyse** :
+   - Une fonction est :
+     - `NON RECURSIVE` si aucun self-call détecté.
+     - `RECURSIVE (non terminale)` si au moins un self-call non terminal.
+     - `TAIL-RECURSIVE` si tous les self-calls sont en position terminale et que tous les
+       chemins se terminent par `return`.
+   - Les raisons des éventuels problèmes sont collectées pour affichage dans le rapport.
+
+### Conclusion technique :
+Le fichier effectue une **analyse statique sémantique partielle** :
+- Il **interprète la structure logique du code** (conditions, boucles, retours) pour
+  inférer si les appels récursifs sont en tail-position.
+- Il **ne s’exécute pas** sur le code (aucune exécution dynamique), mais raisonne sur la
+  structure AST.
+- Il fournit un **rapport clair** des fonctions récursives et des limitations potentielles
+  à la tail-recursion.
+
+En résumé, ce script illustre une analyse sémantique orientée **détection de patterns récursifs**
+dans le code Python via AST, avec une approche conservatrice pour les structures complexes.
+"""
