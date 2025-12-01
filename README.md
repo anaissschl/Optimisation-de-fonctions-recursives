@@ -15,5 +15,6 @@ Python 3.10+ recommandé (pour `ast.unparse`).
 # Commandes à exécuter
 # python tr2loop\analyze_frontend.py examples\sample_input.py
 # python tr2loop\tail_analysis.py examples\sample_input.py
-# python -m tr2loop "examples\sample_input.py" --dry-run
-
+# python -m tr2loop "examples\sample_input.py" --dry-run 
+# avec dry run: on aura juste l`aaffichage de la tranformation des fonctions en boucles.
+# sans dry run: aura un fichier transformé qui sera dans exemple
