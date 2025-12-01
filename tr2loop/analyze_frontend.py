@@ -8,7 +8,7 @@ analyze_frontend.py
 "Optimisation des fonctions récursives terminales en Python".
 
 Ce script :
-  1) Tokenise (découpe en sous ense) le code source à l'aide d'expressions régulières (LEXER).
+  1) Tokenise (découpe en sous ensemble de tokens) le code source à l'aide d'expressions régulières (LEXER).
   2) Construit l'AST officiel avec ast.parse et imprime un résumé de structure (PARSER).
 
 Utilisation :
@@ -35,12 +35,12 @@ from typing import Iterator, List, Optional, Tuple
 # NB : l'ordre et le "longest match" sont importants pour éviter des ambiguïtés.
 
 # a) Fragments réutilisables (lisibilité)
-INT_FRAG   = r"(?:0|[1-9][0-9_]*)"  # entier décimal simple (avec underscores autorisés)
+INT_FRAG   = r"(?:0|[1-9][0-9_]*)"  #reconnaitre un entier décimal simple (avec underscores autorisés)
 FLOAT_FRAG = (
     r"(?:(?:\d+\.\d*|\.\d+|\d+\.)(?:[eE][+-]?\d+)?|(?:\d+[eE][+-]?\d+))"
-)  # nombres flottants (décimal + exponentiel)
+)  #reconnaitre les nombres flottants (décimal + exponentiel)
 
-# Chaînes : versions simples et triple quotes (non-gourmandes)
+#reconnaitre les Chaînes : versions simples et triple quotes (non-gourmandes)
 STRING_FRAG = r"""
 (?:
     \"\"\"[\s\S]*?\"\"\"      # triple double quotes
@@ -143,19 +143,19 @@ class StructurePrinter(ast.NodeVisitor):
         print("   " * self._indent + msg)
 
     def visit_Module(self, node: ast.Module) -> None:
-        print("📘 Analyse de la structure du module")
+        print(" Analyse de la structure du module")
         self._indent += 1
         self.generic_visit(node)
         self._indent -= 1
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         params = [a.arg for a in node.args.args]
-        self._p(f"🧩 Fonction : {node.name}({', '.join(params)})")
+        self._p(f" Fonction : {node.name}({', '.join(params)})")
         self._indent += 1
 
         doc = ast.get_docstring(node)
         if doc:
-            self._p(f"📝 Docstring : {doc.splitlines()[0][:60]}")
+            self._p(f" Docstring : {doc.splitlines()[0][:60]}")
 
         self.generic_visit(node)
         self._indent -= 1
@@ -163,13 +163,13 @@ class StructurePrinter(ast.NodeVisitor):
     def visit_Return(self, node: ast.Return) -> None:
         if isinstance(node.value, ast.Call):
             callee = self._short_call(node.value)
-            self._p(f"↩️  Retourne un appel récursif : {callee}")
+            self._p(f"↩  Retourne un appel récursif : {callee}")
         else:
-            self._p(f"↩️  Retourne la valeur : {self._short_expr(node.value)}")
+            self._p(f"↩  Retourne la valeur : {self._short_expr(node.value)}")
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
-        self._p(f"📞 Appel de fonction : {self._short_call(node)}")
+        self._p(f" Appel de fonction : {self._short_call(node)}")
         self.generic_visit(node)
 
     # --- Helpers d’affichage ---
