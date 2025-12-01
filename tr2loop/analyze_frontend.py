@@ -8,7 +8,7 @@ analyze_frontend.py
 "Optimisation des fonctions récursives terminales en Python".
 
 Ce script :
-  1) Tokenise un sous-ensemble de Python à l'aide d'expressions régulières (LEXER).
+  1) Tokenise (découpe en sous ense) le code source à l'aide d'expressions régulières (LEXER).
   2) Construit l'AST officiel avec ast.parse et imprime un résumé de structure (PARSER).
 
 Utilisation :
